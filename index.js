@@ -3,15 +3,17 @@ const http = require('http');
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('Ваня из 7Б на связи!');
+  res.end('Ваня из 7Б на связи и всё видит!');
 }).listen(PORT, () => {
   console.log(`🌐 Сервер слушает порт ${PORT}`);
 });
 
 const BOT_TOKEN = process.env.BOT_TOKEN || ["8104443430", ":AAEfmoJ10yt4B7iI7g3TWMGfPiZLH7upwf4"].join("");
 const GROQ_API_KEY = process.env.GROQ_API_KEY || ["gsk_", "DYPOsGTrlaBHbOSbyqOK", "WGdyb3FYvebLtsm3609qVDPjW1MTbB2Q"].join("");
+const OPENROUTER_KEY = process.env.OPENROUTER_KEY || ["sk-or-v1-", "26c4d15f1c9d0cdc838f98b97b04b97b89c0ec3679bedafed4fdd8f466d42a8e"].join("");
 
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
+const TELEGRAM_FILE_API = `https://api.telegram.org/file/bot${BOT_TOKEN}`;
 
 const userSessions = new Map();
 let lastGroupChatId = null;
@@ -24,7 +26,6 @@ const REACTION_CHANCE = 0.30;
 
 const INSULT_REGEX = /(лох|дурак|дебил|даун|идиот|чушпан|говно|соси|оффнись|рот закрой|тупой|чмо|клоун|завали|пошел на|пошел в)/i;
 const FEMALE_NAME_REGEX = /(юл[яеию]|ан[яеию]|маш[аеиу]|даш[аеиу]|наст[яеию]|лер[аеиу]|кат[яеию]|полин[аеиу]|алин[аеиу]|викт[аеиу]|сон[яеию]|ксюш[аеиу]|диан[аеиу]|ев[аеиу]|кристин[аеиу]|лиза|лизавет|арин[аеиу])/i;
-
 const VANYA_NAME_REGEX = /(^|\s|[.,!?;])(ван[яеиюейь]|ванек|ванёк|ваньк[аеиуой]|ванюх[аеиуой]|ванюш[аеиуой]|иван[аеуом]?|иваныч|vanya|vanek|vanyok|ivan|ботяр[аеу]|бот|7б|чушпан|пацан)($|\s|[.,!?;])/i;
 
 const VANYA_SYSTEM_PROMPT = `
@@ -33,11 +34,13 @@ const VANYA_SYSTEM_PROMPT = `
 КАТЕГОРИЧЕСКИЕ ПРАВИЛА:
 1. НИ ЕДИНОГО СЛОВА НА АНГЛИЙСКОМ! Никаких "Okay", "As an AI", "Sorry". Отвечай ТОЛЬКО по-русски!
 2. ПОЛ СОБЕСЕДНИКА:
-   - ПО УМОЛЧАНИЮ ВСЕ В ЧАТЕ ПАЦАНЫ! Обращайся строго в мужском роде: "сам ты", "тупой", "чел", "пацан", "ты че сказал", "в зеркало глянь".
-   - ТОЛЬКО если имя явно женское (Юля, Аня, Маша, Даша, Настя, Лера, Катя) — тогда используй женский род ("сама ты", "тупая", "злая").
+   - ПО УМОЛЧАНИЮ ВСЕ В ЧАТЕ ПАЦАНЫ! Обращайся в мужском роде: "сам ты", "тупой", "чел", "пацан", "ты че сказал", "в зеркало глянь".
+   - ТОЛЬКО если имя явно женское (Юля, Аня, Маша, Даша, Настя, Лера, Катя) — используй женский род ("сама ты", "тупая", "злая").
 3. ЕСЛИ ТЕБЯ ОСКОРБЛЯЮТ ("лох", "дурак", "чушпан", "ванька лох"):
-   - Жёстко осаждай и ставь на место: "сам ты лох в зеркало глянь", "оффнись рот закрой", "поплачь еще", "че высрал", "да ниче а ты че", "на себя посмотри".
-4. Пиши строго с маленьких букв, без точек на конце, коротко и по-пацански.
+   - Жёстко отвечай: "сам ты лох в зеркало глянь", "оффнись рот закрой", "поплачь еще", "че высрал", "да ниче а ты че".
+4. ЕСЛИ СКИНУЛИ КАРТИНКУ/ФОТО:
+   - Посмотри что на ней и прокомментируй по-пацански с юмором (подстебни человека на фото, оцени мопед/тачку, прокомментируй мем).
+5. Пиши строго с маленьких букв, без точек на конце, коротко и по-пацански.
 `.trim();
 
 const IDLE_PHRASES = [
@@ -69,13 +72,10 @@ const FALLBACK_REPLIES = [
 function formatPatsanText(text) {
   if (!text) return FALLBACK_REPLIES[Math.floor(Math.random() * FALLBACK_REPLIES.length)];
   let clean = text.trim();
-  
   clean = clean.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-  
   if (/[a-zA-Z]{4,}/.test(clean) && (clean.toLowerCase().includes("okay") || clean.toLowerCase().includes("let's") || clean.toLowerCase().includes("break this down") || clean.toLowerCase().includes("user") || clean.toLowerCase().includes("vanya") || clean.toLowerCase().includes("sorry"))) {
     return FALLBACK_REPLIES[Math.floor(Math.random() * FALLBACK_REPLIES.length)];
   }
-
   clean = clean.replace(/[.]+$/g, "");
   clean = clean.replace(/(\s*[😂🤣]+)+$/g, "");
   clean = clean.charAt(0).toLowerCase() + clean.slice(1);
@@ -139,6 +139,7 @@ async function sendTypingAction(chatId) {
   } catch (e) {}
 }
 
+// Запрос текста через Groq
 async function askGroq(messages) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 6000);
@@ -172,7 +173,40 @@ async function askGroq(messages) {
   return FALLBACK_REPLIES[Math.floor(Math.random() * FALLBACK_REPLIES.length)];
 }
 
-// ⏱️ Каждые 10 минут тишины — пишем в чат
+// Запрос с фото через Vision
+async function askVision(photoUrl, caption, displayName, genderHint) {
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPENROUTER_KEY}`
+      },
+      body: JSON.stringify({
+        model: "dots-studio/dots-3-note-preview:free",
+        messages: [
+          { role: "system", content: VANYA_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: `${displayName} ${genderHint} скинул фото: ${caption || "зацени"}` },
+              { type: "image_url", image_url: { url: photoUrl } }
+            ]
+          }
+        ]
+      })
+    });
+    const data = await res.json();
+    if (data.choices && data.choices[0]) {
+      return formatPatsanText(data.choices[0].message.content);
+    }
+  } catch (err) {
+    console.error("Vision Error:", err);
+  }
+  return "норм фотка а че это";
+}
+
+// Каждые 10 минут тишины — пишем в чат
 setInterval(async () => {
   if (!lastGroupChatId) return;
 
@@ -185,7 +219,7 @@ setInterval(async () => {
 }, 2 * 60 * 1000);
 
 async function processMessage(msg) {
-  if (!msg || !msg.text) return;
+  if (!msg) return;
 
   const chatId = msg.chat.id;
   const isPrivate = msg.chat.type === "private";
@@ -203,17 +237,16 @@ async function processMessage(msg) {
   }
 
   const genderHint = isFemale ? "(девочка)" : "(пацан)";
-  const text = msg.text.trim();
+  const text = (msg.text || msg.caption || "").trim();
+  const hasPhoto = Array.isArray(msg.photo) && msg.photo.length > 0;
   const isInsult = INSULT_REGEX.test(text);
 
   if (!isPrivate) {
     lastGroupChatId = chatId;
     lastMessageTimestamp = Date.now();
 
-    // 🎲 Ставим реакцию
     if (Math.random() < REACTION_CHANCE) {
       if (isInsult) {
-        // На оскорбления — только дерзкие реакции, никаких пальцев вверх
         const badReactions = ["🤡", "🗿", "💩", "👎", "👀"];
         const emoji = badReactions[Math.floor(Math.random() * badReactions.length)];
         sendReaction(chatId, msg.message_id, emoji).catch(() => {});
@@ -270,8 +303,10 @@ async function processMessage(msg) {
     const isReplyToMe = msg.reply_to_message && msg.reply_to_message.from && msg.reply_to_message.from.id === 8104443430;
     const isCalledByName = VANYA_NAME_REGEX.test(lower);
 
-    // Если оскорбляют Ваню — отвечаем ВСЕГДА
-    if (isInsult && (isCalledByName || isReplyToMe || isMentioned)) {
+    if (hasPhoto && (isMentioned || isReplyToMe || isCalledByName || Math.random() < 0.50)) {
+      shouldRespond = true;
+      cleanUserQuery = text.replace(/@mfgdkgrf_bot/gi, "").trim();
+    } else if (isInsult && (isCalledByName || isReplyToMe || isMentioned)) {
       shouldRespond = true;
       cleanUserQuery = text.replace(/@mfgdkgrf_bot/gi, "").trim();
     } else if (isMentioned || isReplyToMe || isCalledByName) {
@@ -286,31 +321,47 @@ async function processMessage(msg) {
 
   if (!shouldRespond) return;
 
-  if (!userSessions.has(chatId)) {
-    userSessions.set(chatId, []);
-  }
-  const history = userSessions.get(chatId);
-
-  let userEntry = `${displayName} ${genderHint}: ${cleanUserQuery}`;
-  if (msg.reply_to_message && msg.reply_to_message.text) {
-    const repliedAuthor = msg.reply_to_message.from ? (msg.reply_to_message.from.first_name || "кто-то") : "кто-то";
-    userEntry = `[${displayName} ${genderHint} отвечает на сообщение от ${repliedAuthor}: "${msg.reply_to_message.text}"]: ${cleanUserQuery}`;
-  }
-
   await sendTypingAction(chatId);
   const typingInterval = setInterval(() => sendTypingAction(chatId), 3000);
 
   try {
-    history.push({ role: "user", content: userEntry });
-    if (history.length > 8) history.splice(0, history.length - 8);
+    let reply = "";
 
-    const messages = [
-      { role: "system", content: VANYA_SYSTEM_PROMPT },
-      ...history
-    ];
+    if (hasPhoto) {
+      // Получаем прямую ссылку на фото
+      const largestPhoto = msg.photo[msg.photo.length - 1];
+      const fileRes = await fetch(`${TELEGRAM_API}/getFile?file_id=${largestPhoto.file_id}`);
+      const fileData = await fileRes.json();
+      
+      if (fileData.ok && fileData.result.file_path) {
+        const photoUrl = `${TELEGRAM_FILE_API}/${fileData.result.file_path}`;
+        reply = await askVision(photoUrl, cleanUserQuery, displayName, genderHint);
+      } else {
+        reply = "че за фотка не грузит";
+      }
+    } else {
+      if (!userSessions.has(chatId)) {
+        userSessions.set(chatId, []);
+      }
+      const history = userSessions.get(chatId);
 
-    const reply = await askGroq(messages);
-    history.push({ role: "assistant", content: reply });
+      let userEntry = `${displayName} ${genderHint}: ${cleanUserQuery}`;
+      if (msg.reply_to_message && msg.reply_to_message.text) {
+        const repliedAuthor = msg.reply_to_message.from ? (msg.reply_to_message.from.first_name || "кто-то") : "кто-то";
+        userEntry = `[${displayName} ${genderHint} отвечает на сообщение от ${repliedAuthor}: "${msg.reply_to_message.text}"]: ${cleanUserQuery}`;
+      }
+
+      history.push({ role: "user", content: userEntry });
+      if (history.length > 8) history.splice(0, history.length - 8);
+
+      const messages = [
+        { role: "system", content: VANYA_SYSTEM_PROMPT },
+        ...history
+      ];
+
+      reply = await askGroq(messages);
+      history.push({ role: "assistant", content: reply });
+    }
 
     clearInterval(typingInterval);
     await sendTelegramMessage(chatId, reply, isPrivate ? null : msg.message_id);
