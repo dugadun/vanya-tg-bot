@@ -1,6 +1,5 @@
 const http = require('http');
 
-// Сервер-заглушка
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -40,7 +39,6 @@ const VANYA_SYSTEM_PROMPT = `
 4. Пиши строго с маленьких букв, без точек на конце, коротко и без занудства.
 `.trim();
 
-// Фразы, если в чате тишина 10 минут
 const IDLE_PHRASES = [
   "че затихли чушпаны",
   "че в чате глухо как в танке",
@@ -174,7 +172,7 @@ async function askGroq(messages) {
   return FALLBACK_REPLIES[Math.floor(Math.random() * FALLBACK_REPLIES.length)];
 }
 
-// ⏱️ Авто-активность: каждые 10 МИНУТ проверяем тишину
+// Каждые 10 минут тишины — пишем в чат
 setInterval(async () => {
   if (!lastGroupChatId) return;
 
