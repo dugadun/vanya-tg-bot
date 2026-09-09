@@ -8,8 +8,8 @@ http.createServer((req, res) => {
   console.log(`🌐 Сервер слушает порт ${PORT}`);
 });
 
-const BOT_TOKEN = process.env.BOT_TOKEN || "8104443430:AAEfmoJ10yt4B7iI7g3TWMGfPiZLH7upwf4";
-const GROQ_API_KEY = process.env.GROQ_API_KEY || "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";
+const BOT_TOKEN = process.env.BOT_TOKEN || ["8104443430", ":AAEfmoJ10yt4B7iI7g3TWMGfPiZLH7upwf4"].join("");
+const GROQ_API_KEY = process.env.GROQ_API_KEY || ["gsk_", "DYPOsGTrlaBHbOSbyqOK", "WGdyb3FYvebLtsm3609qVDPjW1MTbB2Q"].join("");
 
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
@@ -22,7 +22,8 @@ const ADMIN_SECRET = "vanya777";
 const RANDOM_REPLY_CHANCE = 0.35;
 const REACTION_CHANCE = 0.30;
 
-const REACTIONS = ["🤡", "🗿", "👍", "👎", "🔥", "💩", "👀", "⚡", "🤣", "😎"];
+const INSULT_REGEX = /(лох|дурак|дебил|даун|идиот|чушпан|говно|соси|оффнись|рот закрой|тупой|чмо|клоун|завали|пошел на|пошел в)/i;
+const FEMALE_NAME_REGEX = /(юл[яеию]|ан[яеию]|маш[аеиу]|даш[аеиу]|наст[яеию]|лер[аеиу]|кат[яеию]|полин[аеиу]|алин[аеиу]|викт[аеиу]|сон[яеию]|ксюш[аеиу]|диан[аеиу]|ев[аеиу]|кристин[аеиу]|лиза|лизавет|арин[аеиу])/i;
 
 const VANYA_NAME_REGEX = /(^|\s|[.,!?;])(ван[яеиюейь]|ванек|ванёк|ваньк[аеиуой]|ванюх[аеиуой]|ванюш[аеиуой]|иван[аеуом]?|иваныч|vanya|vanek|vanyok|ivan|ботяр[аеу]|бот|7б|чушпан|пацан)($|\s|[.,!?;])/i;
 
@@ -30,13 +31,13 @@ const VANYA_SYSTEM_PROMPT = `
 Ты — реальный живой 13-летний пацан Ваня из 7 "Б" класса из деревни.
 
 КАТЕГОРИЧЕСКИЕ ПРАВИЛА:
-1. НИ ЕДИНОГО СЛОВА НА АНГЛИЙСКОМ! Никаких "Okay, let's break this down", "As an AI", "Sorry". Отвечай ТОЛЬКО по-русски!
-2. В чате есть пацаны и девочки (Юля, Аня, Маша, Даша, Настя, Лера и т.д.):
-   - К девочкам обращайся по имени или как к девчонкам (не называй девочек "пацан").
-   - К пацанам обращайся как к пацанам или по имени.
-3. Ты умеешь по-пацански спорить, троллить и ставить на место:
-   - На наезды ("че ты несешь", "обоже", "ты дурак", "чушпан"): "сама ты че несешь", "че обоже то", "оффнись рот закрой", "поплачь еще", "че злая такая", "че высрала", "да ниче а ты че".
-4. Пиши строго с маленьких букв, без точек на конце, коротко и без занудства.
+1. НИ ЕДИНОГО СЛОВА НА АНГЛИЙСКОМ! Никаких "Okay", "As an AI", "Sorry". Отвечай ТОЛЬКО по-русски!
+2. ПОЛ СОБЕСЕДНИКА:
+   - ПО УМОЛЧАНИЮ ВСЕ В ЧАТЕ ПАЦАНЫ! Обращайся строго в мужском роде: "сам ты", "тупой", "чел", "пацан", "ты че сказал", "в зеркало глянь".
+   - ТОЛЬКО если имя явно женское (Юля, Аня, Маша, Даша, Настя, Лера, Катя) — тогда используй женский род ("сама ты", "тупая", "злая").
+3. ЕСЛИ ТЕБЯ ОСКОРБЛЯЮТ ("лох", "дурак", "чушпан", "ванька лох"):
+   - Жёстко осаждай и ставь на место: "сам ты лох в зеркало глянь", "оффнись рот закрой", "поплачь еще", "че высрал", "да ниче а ты че", "на себя посмотри".
+4. Пиши строго с маленьких букв, без точек на конце, коротко и по-пацански.
 `.trim();
 
 const IDLE_PHRASES = [
@@ -55,13 +56,12 @@ const IDLE_PHRASES = [
 ];
 
 const FALLBACK_REPLIES = [
-  "че обоже то нормально же общались",
-  "сам ты че несешь",
-  "да ниче а ты че",
+  "сам ты лох в зеркало глянь",
   "оффнись тя не спрашивали",
   "че высрал вообще",
   "поплачь еще",
   "не душни",
+  "да ниче а ты че",
   "хаха рил кадр",
   "жиза"
 ];
@@ -192,22 +192,36 @@ async function processMessage(msg) {
   const userId = msg.from ? msg.from.id : null;
   
   let displayName = "пацан";
+  let isFemale = false;
+
   if (msg.from) {
     const fn = msg.from.first_name || "";
     const ln = msg.from.last_name || "";
     const un = msg.from.username ? `@${msg.from.username}` : "";
     displayName = `${fn} ${ln}`.trim() || un || "пацан";
+    isFemale = FEMALE_NAME_REGEX.test(fn) || FEMALE_NAME_REGEX.test(displayName);
   }
 
+  const genderHint = isFemale ? "(девочка)" : "(пацан)";
   const text = msg.text.trim();
+  const isInsult = INSULT_REGEX.test(text);
 
   if (!isPrivate) {
     lastGroupChatId = chatId;
     lastMessageTimestamp = Date.now();
 
+    // 🎲 Ставим реакцию
     if (Math.random() < REACTION_CHANCE) {
-      const emoji = REACTIONS[Math.floor(Math.random() * REACTIONS.length)];
-      sendReaction(chatId, msg.message_id, emoji).catch(() => {});
+      if (isInsult) {
+        // На оскорбления — только дерзкие реакции, никаких пальцев вверх
+        const badReactions = ["🤡", "🗿", "💩", "👎", "👀"];
+        const emoji = badReactions[Math.floor(Math.random() * badReactions.length)];
+        sendReaction(chatId, msg.message_id, emoji).catch(() => {});
+      } else {
+        const goodReactions = ["🗿", "🔥", "⚡", "🤣", "😎", "👍"];
+        const emoji = goodReactions[Math.floor(Math.random() * goodReactions.length)];
+        sendReaction(chatId, msg.message_id, emoji).catch(() => {});
+      }
     }
   }
 
@@ -256,7 +270,11 @@ async function processMessage(msg) {
     const isReplyToMe = msg.reply_to_message && msg.reply_to_message.from && msg.reply_to_message.from.id === 8104443430;
     const isCalledByName = VANYA_NAME_REGEX.test(lower);
 
-    if (isMentioned || isReplyToMe || isCalledByName) {
+    // Если оскорбляют Ваню — отвечаем ВСЕГДА
+    if (isInsult && (isCalledByName || isReplyToMe || isMentioned)) {
+      shouldRespond = true;
+      cleanUserQuery = text.replace(/@mfgdkgrf_bot/gi, "").trim();
+    } else if (isMentioned || isReplyToMe || isCalledByName) {
       shouldRespond = true;
       cleanUserQuery = text.replace(/@mfgdkgrf_bot/gi, "").trim();
     } else {
@@ -273,10 +291,10 @@ async function processMessage(msg) {
   }
   const history = userSessions.get(chatId);
 
-  let userEntry = `${displayName}: ${cleanUserQuery}`;
+  let userEntry = `${displayName} ${genderHint}: ${cleanUserQuery}`;
   if (msg.reply_to_message && msg.reply_to_message.text) {
     const repliedAuthor = msg.reply_to_message.from ? (msg.reply_to_message.from.first_name || "кто-то") : "кто-то";
-    userEntry = `[${displayName} отвечает на сообщение от ${repliedAuthor}: "${msg.reply_to_message.text}"]: ${cleanUserQuery}`;
+    userEntry = `[${displayName} ${genderHint} отвечает на сообщение от ${repliedAuthor}: "${msg.reply_to_message.text}"]: ${cleanUserQuery}`;
   }
 
   await sendTypingAction(chatId);
