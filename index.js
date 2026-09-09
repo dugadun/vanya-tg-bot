@@ -172,7 +172,7 @@ async function askGroq(messages) {
   return FALLBACK_REPLIES[Math.floor(Math.random() * FALLBACK_REPLIES.length)];
 }
 
-// Каждые 10 минут тишины — пишем в чат
+// ⏱️ Каждые 10 минут тишины — пишем в чат
 setInterval(async () => {
   if (!lastGroupChatId) return;
 
