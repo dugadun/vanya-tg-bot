@@ -1,10 +1,10 @@
 const http = require('http');
 
-// Сервер-заглушка для круглосуточной работы на хостинге
+// Сервер-заглушка
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('Ваня из 7Б онлайн 24/7');
+  res.end('Ваня из 7Б на связи!');
 }).listen(PORT, () => {
   console.log(`🌐 Сервер слушает порт ${PORT}`);
 });
@@ -20,7 +20,7 @@ let adminUserId = null;
 let lastMessageTimestamp = Date.now();
 
 const ADMIN_SECRET = "vanya777";
-const RANDOM_REPLY_CHANCE = 0.30;
+const RANDOM_REPLY_CHANCE = 0.35;
 const REACTION_CHANCE = 0.30;
 
 const REACTIONS = ["🤡", "🗿", "👍", "👎", "🔥", "💩", "👀", "⚡", "🤣", "😎"];
@@ -40,6 +40,7 @@ const VANYA_SYSTEM_PROMPT = `
 4. Пиши строго с маленьких букв, без точек на конце, коротко и без занудства.
 `.trim();
 
+// Фразы, если в чате тишина 10 минут
 const IDLE_PHRASES = [
   "че затихли чушпаны",
   "че в чате глухо как в танке",
@@ -49,7 +50,10 @@ const IDLE_PHRASES = [
   "э вы где все живые есть",
   "кто не пишет тот чушпан го общаться",
   "че там по домашке кто сделал алгебру",
-  "тишина в чате как на контрольной по физике"
+  "тишина в чате как на контрольной по физике",
+  "ау народ вы че вымерли",
+  "го в бравл или в стендофф кто пойдет",
+  "скукотища жесть напишите ченить"
 ];
 
 const FALLBACK_REPLIES = [
@@ -170,16 +174,17 @@ async function askGroq(messages) {
   return FALLBACK_REPLIES[Math.floor(Math.random() * FALLBACK_REPLIES.length)];
 }
 
+// ⏱️ Авто-активность: каждые 10 МИНУТ проверяем тишину
 setInterval(async () => {
   if (!lastGroupChatId) return;
 
   const now = Date.now();
-  if (now - lastMessageTimestamp >= 30 * 60 * 1000) {
+  if (now - lastMessageTimestamp >= 10 * 60 * 1000) {
     const randomPhrase = IDLE_PHRASES[Math.floor(Math.random() * IDLE_PHRASES.length)];
     await sendTelegramMessage(lastGroupChatId, randomPhrase);
     lastMessageTimestamp = now;
   }
-}, 5 * 60 * 1000);
+}, 2 * 60 * 1000);
 
 async function processMessage(msg) {
   if (!msg || !msg.text) return;
@@ -303,7 +308,7 @@ async function processMessage(msg) {
 
 let lastUpdateId = 0;
 async function startPolling() {
-  console.log(`🤖 Ваня из 7Б (100% русский, чистый Qwen) запущен!`);
+  console.log(`🤖 Ваня из 7Б запущен!`);
 
   while (true) {
     try {
